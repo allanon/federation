@@ -15,6 +15,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v2
 
+      ### INSTALL RUST ###
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         id: toolchain
@@ -23,15 +24,40 @@ jobs:
           profile: minimal
           components: rustfmt, clippy
 
+      ## INSTALL NODE AND NPM
+      - name: Install Node and npm
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+
       ### BUILD CACHE ###
       - name: Cache Cargo registry, target, index
         uses: actions/cache@v2
+        id: cache-cargo
+        env:
+          cache-name: cache-cargo
         with:
           path: |
             ~/.cargo/registry
+            ~/.cargo/bin
             ~/.cargo/git
             target
-          key: linux-${{ steps.toolchain.outputs.rustc_hash }}-rust-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ steps.toolchain.outputs.rustc_hash }}-rust-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache npm
+        uses: actions/cache@v2
+        id: cache-node-modules
+        env:
+          cache-name: cache-node-modules
+        with:
+          path: ~/.npm
+          key: ${{ matrix.build }}-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ matrix.build }}-${{ env.cache-name }}-
+            ${{ matrix.build }}-
+
+      - name: Install npm dependencies
+        run: npm install
 
       ### FORMATTING AND STYLE ###
       - name: Check formatting
@@ -43,50 +69,22 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all-features
 
-  test-no-run:
-    name: Compile tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      ### INSTALL RUST ###
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        id: toolchain
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      ### BUILD CACHE ###
-      - name: Cache Cargo registry, target, index
-        if: matrix.build != 'macos'
-        uses: actions/cache@v2
-        id: cache-cargo
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/bin
-            ~/.cargo/git
-            target
-          key: linux-${{ steps.toolchain.outputs.rustc_hash }}-rust-${{ hashFiles('**/Cargo.lock') }}
-
-      ### COMPILE INCLUDING TESTS ###
-      # Note: we do this so that we'll cache the compile results/registry even if test might fail
-      # We don't need to do it if there was a cache hit.
-      - name: Compile tests on cache miss
-        if: steps.cache-cargo.outputs.cache-hit != 'true'
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: "--no-run --workspace --locked"
-
   test:
     name: Test
-    needs: test-no-run
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Intentionally 1x1 matrix right now to enable easy fan-out
+      # in the future, but also to model what is in rust-slow-test.
+      matrix:
+        build: [linux]
+        include:
+          - build: linux
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout Code
+        uses: actions/checkout@v2
 
       ### INSTALL RUST ###
       - name: Install Rust
@@ -94,24 +92,49 @@ jobs:
         id: toolchain
         with:
           toolchain: stable
+          target: ${{ matrix.target }}
           profile: minimal
           override: true
+
+      ## INSTALL NODE AND NPM
+      - name: Install Node and npm
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
 
       ### BUILD CACHE ###
       - name: Cache Cargo registry, target, index
         uses: actions/cache@v2
+        id: cache-cargo
+        env:
+          cache-name: cache-cargo
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/bin
             ~/.cargo/git
             target
-          key: linux-${{ steps.toolchain.outputs.rustc_hash }}-rust-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.build }}-${{ steps.toolchain.outputs.rustc_hash }}-rust-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache npm
+        uses: actions/cache@v2
+        id: cache-node-modules
+        env:
+          cache-name: cache-node-modules
+        with:
+          path: ~/.npm
+          key: ${{ matrix.build }}-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ matrix.build }}-${{ env.cache-name }}-
+            ${{ matrix.build }}-
 
       # Install wasm-pack
       - name: Install wasm-pack
         shell: bash
         run: which wasm-pack || curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install npm dependencies
+        run: npm install
 
       ### RUN TESTS ###
       - name: Test (cargo test)
