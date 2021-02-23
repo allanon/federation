@@ -18,8 +18,7 @@
     "test:ci": "npm run coverage -- --ci --maxWorkers=2  --reporters=default --reporters=jest-junit",
     "coverage": "npm test -- --coverage",
     "coverage:upload": "codecov",
-    "rustup-install": "INSTALL_RUSTUP=true ./ensure-rustup.sh",
-    "rustup-ensure": "INSTALL_RUSTUP= ./ensure-rustup.sh"
+    "rustup-ensure": "node ensure-rustup.js"
   },
   "engines": {
     "node": ">=6"
